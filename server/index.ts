@@ -226,19 +226,50 @@ passport.use(
           return;
         }
 
-        const user = await prisma.user.upsert({
+        // Handle both cases:
+        // 1) existing user by Google provider id
+        // 2) pre-existing user by email (avoid unique email conflicts on create)
+        const existingByProvider = await prisma.user.findUnique({
           where: { providerId: profile.id },
-          update: { name: profile.displayName, email, avatarUrl },
-          create: {
-            email,
-            name: profile.displayName,
-            avatarUrl,
-            provider: "google",
-            providerId: profile.id,
-          },
         });
+        const existingByEmail = await prisma.user.findUnique({
+          where: { email },
+        });
+
+        const user = existingByProvider
+          ? await prisma.user.update({
+              where: { id: existingByProvider.id },
+              data: {
+                name: profile.displayName,
+                email,
+                avatarUrl,
+                provider: "google",
+                providerId: profile.id,
+              },
+            })
+          : existingByEmail
+            ? await prisma.user.update({
+                where: { id: existingByEmail.id },
+                data: {
+                  name: profile.displayName,
+                  email,
+                  avatarUrl,
+                  provider: "google",
+                  providerId: profile.id,
+                },
+              })
+            : await prisma.user.create({
+                data: {
+                  email,
+                  name: profile.displayName,
+                  avatarUrl,
+                  provider: "google",
+                  providerId: profile.id,
+                },
+              });
         done(null, user);
       } catch (error) {
+        console.error("Google auth callback failed:", error);
         done(error as Error, undefined);
       }
     }
